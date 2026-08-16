@@ -1,0 +1,31 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: cloudmart-order
+  datasource:
+    url: jdbc:mysql://localhost:3307/cloudmart?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+      config:
+        import-check:
+          enabled: false
+mybatis-plus:
+  global-config:
+    db-config:
+      id-type: auto          # 主键自增
+      logic-delete-field: deleted   # 逻辑删除字段名
+      logic-delete-value: 1         # 已删除值
+      logic-not-delete-value: 0     # 未删除值
+  configuration:
+    map-underscore-to-camel-case: true  # 下划线转驼峰

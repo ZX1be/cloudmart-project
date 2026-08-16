@@ -1,0 +1,40 @@
+server:
+  port: 8080
+spring:
+  application:
+    name: cloudmart-gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+      config:
+        import-check:
+          enabled: false
+    gateway:
+      routes:
+        #=======Auth服务========
+        - id: auth-service
+          uri: lb://cloudmart-auth
+          predicates:
+            - Path=/api/auth/**
+
+
+        #=======Product服务========
+        - id: product-service
+          uri: lb://cloudmart-product
+          predicates:
+            - Path=/api/products/**,/api/categories/**,/api/favorites/**,/api/admin/**
+
+
+
+        #=======Order服务========
+        - id: order-service
+          uri: lb://cloudmart-order
+          predicates:
+            - Path=/api/cart/**,/api/orders/**,/api/coupons/**,/api/seckill/**
+
+
+        #全局过滤器，去掉重复的跨域头
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Origin
+
