@@ -1,6 +1,16 @@
 server:
   port: 8083
 
+
+springdoc:
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
 spring:
   application:
     name: cloudmart-order

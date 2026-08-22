@@ -23,9 +23,14 @@ public class CartItemService extends ServiceImpl<CartItemMapper, CartItem> {
                 .orderByDesc(CartItem::getCreatedAt));
     }
 
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void add(Long userId, Long productId, Integer quantity) {
+        if (quantity == null || quantity <= 0) {
+            throw new BizException("购买数量必须大于0");
+        }
+
         Product product = productMapper.selectById(productId);
+
         if (product == null || product.getStatus() == 0) {
             throw new BizException("商品不存在或已下架");
         }
@@ -47,6 +52,33 @@ public class CartItemService extends ServiceImpl<CartItemMapper, CartItem> {
             item.setSelected(1);
             this.save(item);
         }
+    }
+    public void updateQuantity(Long userId, Long id, Integer quantity) {
+        CartItem item = getOwnedItem(userId, id);
+        if (quantity == null || quantity <= 0) {
+            throw new BizException("购买数量必须大于0");
+        }
+        item.setQuantity(quantity);
+        this.updateById(item);
+    }
+
+    public void updateSelected(Long userId, Long id, Integer selected) {
+        CartItem item = getOwnedItem(userId, id);
+        item.setSelected(selected);
+        this.updateById(item);
+    }
+
+    public void deleteItem(Long userId, Long id) {
+        getOwnedItem(userId, id);
+        this.removeById(id);
+    }
+
+    private CartItem getOwnedItem(Long userId, Long id) {
+        CartItem item = this.getById(id);
+        if (item == null || !item.getUserId().equals(userId)) {
+            throw new BizException("购物车项不存在");
+        }
+        return item;
     }
 
 

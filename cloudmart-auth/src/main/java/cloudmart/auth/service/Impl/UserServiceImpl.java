@@ -30,7 +30,7 @@ public class UserServiceImpl implements UserService {
         if (userMapper.selectCount(wrapper)>0){
             throw new BizException("用户名已存在");
         }
-        if(dto.getPhone()==null){
+        if(dto.getPhone()!=null){
             wrapper.clear();
             wrapper.eq(User::getPhone,dto.getPhone());
             if(userMapper.selectCount(wrapper)>0){
