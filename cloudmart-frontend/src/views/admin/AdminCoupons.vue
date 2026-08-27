@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { adminApi } from '@/api/admin'
+import AdminNav from '@/components/AdminNav.vue'
 import type { Coupon } from '@/types'
 
 const coupons = ref<Coupon[]>([])
@@ -43,6 +44,7 @@ onMounted(load)
 
 <template>
   <div>
+    <AdminNav />
     <div class="toolbar">
       <h2>优惠券管理</h2>
       <el-button type="primary" @click="openCreate">新增优惠券</el-button>

@@ -1,7 +1,9 @@
 package cloudmart.product.controller;
 
+import cloudmart.product.dto.ProductQueryDTO;
 import cloudmart.product.entity.Product;
 import cloudmart.product.service.ProductService;
+import com.baomidou.mybatisplus.core.metadata.IPage;
 import common.exception.BizException;
 import common.result.Result;
 import jakarta.validation.Valid;
@@ -14,6 +16,13 @@ import org.springframework.web.bind.annotation.*;
 public class AdminProductController {
 
     private final ProductService productService;
+
+    @GetMapping
+    public Result<IPage<Product>> list(@RequestHeader("X-Role") String role,
+                                       ProductQueryDTO dto) {
+        checkAdmin(role);
+        return Result.success(productService.queryPage(dto));
+    }
 
     @PostMapping
     public Result<Void> create(@RequestHeader("X-Role") String role,

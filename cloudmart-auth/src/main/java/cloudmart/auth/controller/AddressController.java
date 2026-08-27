@@ -29,6 +29,15 @@ public class AddressController {
         return Result.success();
 
     }
+    @PutMapping("/{id}")
+    public Result<Void> update(@RequestHeader("X-User-Id") Long userId,
+                               @PathVariable Long id,
+                               @Valid @RequestBody Address address){
+        address.setId(id);
+        address.setUserId(userId);
+        addressService.updateAddress(address);
+        return Result.success();
+    }
     @DeleteMapping("/{id}")
     public Result<Void> delete(@RequestHeader("X-User-Id") Long userId,
                                @PathVariable long id){

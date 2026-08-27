@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { adminApi } from '@/api/admin'
+import AdminNav from '@/components/AdminNav.vue'
 import Pagination from '@/components/Pagination.vue'
 import type { Product } from '@/types'
 
@@ -75,6 +76,7 @@ onMounted(load)
 
 <template>
   <div>
+    <AdminNav />
     <div class="toolbar">
       <h2>商品管理</h2>
       <el-button type="primary" @click="openCreate">添加商品</el-button>

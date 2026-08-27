@@ -1,11 +1,11 @@
 package cloudmart.order.service;
 
+import cloudmart.order.client.ProductClient;
 import cloudmart.order.entity.CartItem;
 import cloudmart.order.mapper.CartItemMapper;
-import cloudmart.product.entity.Product;
-import cloudmart.product.mapper.ProductMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import common.dto.ProductDTO;
 import common.exception.BizException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,7 +16,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class CartItemService extends ServiceImpl<CartItemMapper, CartItem> {
-    private final ProductMapper productMapper;
+    private final ProductClient productClient;
 
     public List<CartItem> listByUserId(Long userId) {
         return this.list(new LambdaQueryWrapper<CartItem>().eq(CartItem::getUserId, userId)
@@ -29,7 +29,7 @@ public class CartItemService extends ServiceImpl<CartItemMapper, CartItem> {
             throw new BizException("购买数量必须大于0");
         }
 
-        Product product = productMapper.selectById(productId);
+        ProductDTO product = productClient.getById(productId).getData();
 
         if (product == null || product.getStatus() == 0) {
             throw new BizException("商品不存在或已下架");

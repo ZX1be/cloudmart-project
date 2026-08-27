@@ -6,7 +6,10 @@ import common.exception.BizException;
 import common.result.Result;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/admin/categories")
@@ -14,12 +17,20 @@ import org.springframework.web.bind.annotation.*;
 public class AdminCategoryController {
 
     private final CategoryService categoryService;
+    private final RedisTemplate redisTemplate;
+
+    @GetMapping
+    public Result<List<Category>> list(@RequestHeader("X-Role") String role) {
+        checkAdmin(role);
+        return Result.success(categoryService.list());
+    }
 
     @PostMapping
     public Result<Void> create(@RequestHeader("X-Role") String role,
                                @Valid @RequestBody Category category) {
         checkAdmin(role);
         categoryService.save(category);
+        redisTemplate.delete("category:tree");
         return Result.success();
     }
 
@@ -30,6 +41,7 @@ public class AdminCategoryController {
         checkAdmin(role);
         category.setId(id);
         categoryService.updateById(category);
+        redisTemplate.delete("category:tree");
         return Result.success();
     }
 
@@ -38,6 +50,7 @@ public class AdminCategoryController {
                                @PathVariable Long id) {
         checkAdmin(role);
         categoryService.removeById(id);
+        redisTemplate.delete("category:tree");
         return Result.success();
     }
 

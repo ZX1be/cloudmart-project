@@ -37,6 +37,13 @@ public class CartController {
         cartItemService.updateById(item);
         return Result.success();
     }
+    @PutMapping("/{id}/selected")
+    public Result<Void> updateSelected(@RequestHeader("X-User-Id") Long userId,
+                                       @PathVariable Long id,
+                                       @RequestParam Integer selected) {
+        cartItemService.updateSelected(userId, id, selected);
+        return Result.success();
+    }
     @DeleteMapping("/{id}")
     public Result<Void> delete(@RequestHeader("X-User-Id") Long userId,
                                @PathVariable Long id) {

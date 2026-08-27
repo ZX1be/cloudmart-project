@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { adminApi } from '@/api/admin'
+import AdminNav from '@/components/AdminNav.vue'
 import Pagination from '@/components/Pagination.vue'
 import type { Order } from '@/types'
 
@@ -25,6 +26,7 @@ onMounted(load)
 
 <template>
   <div>
+    <AdminNav />
     <h2>订单管理</h2>
     <el-table :data="orders" border>
       <el-table-column prop="id" label="ID" width="70" />

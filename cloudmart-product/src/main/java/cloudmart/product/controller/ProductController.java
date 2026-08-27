@@ -7,10 +7,7 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import common.exception.BizException;
 import common.result.Result;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/products")
@@ -30,4 +27,17 @@ public class ProductController {
         return Result.success(productService.detail(id));
     }
 
+    @PostMapping("/{id}/deduct")
+    public Result<Void> deductStock(@PathVariable Long id,
+            @RequestParam Integer quantity){
+        productService.deductStock(id, quantity);
+        return Result.success();
+    }
+
+    @PostMapping("/{id}/restore")
+    public Result<Void> restoreStock(@PathVariable Long id,
+            @RequestParam Integer quantity){
+        productService.restoreStock(id, quantity);
+        return Result.success();
+    }
 }

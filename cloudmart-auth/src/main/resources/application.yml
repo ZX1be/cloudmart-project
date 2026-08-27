@@ -1,5 +1,8 @@
 server:
   port: 8081
+  tomcat:
+    threads:
+      max: 500
 springdoc:
   swagger-ui:
     enabled: true
@@ -16,6 +19,12 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
   data:
     redis:
       host: localhost

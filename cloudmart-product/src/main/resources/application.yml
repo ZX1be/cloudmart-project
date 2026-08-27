@@ -1,5 +1,8 @@
 server:
   port: 8082
+  tomcat:
+    threads:
+      max: 500
 
 springdoc:
   swagger-ui:
@@ -18,10 +21,24 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
   data:
     redis:
       host: localhost
       port: 6379
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    listener:
+      simple:
+        acknowledge-mode: manual
   cloud:
     nacos:
       discovery:

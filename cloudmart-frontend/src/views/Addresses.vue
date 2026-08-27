@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
+import type { FormInstance, FormRules } from 'element-plus'
 import { addressApi, type AddressForm } from '@/api/address'
 import type { Address } from '@/types'
 
 const addresses = ref<Address[]>([])
 const dialogVisible = ref(false)
 const editingId = ref<number | null>(null)
+const formRef = ref<FormInstance>()
 const form = reactive<AddressForm>({
   receiverName: '',
   phone: '',
@@ -15,6 +17,18 @@ const form = reactive<AddressForm>({
   detail: '',
   isDefault: 0,
 })
+
+const rules: FormRules = {
+  receiverName: [{ required: true, message: '请输入收货人', trigger: 'blur' }],
+  phone: [
+    { required: true, message: '请输入联系电话', trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' },
+  ],
+  province: [{ required: true, message: '请输入省份', trigger: 'blur' }],
+  city: [{ required: true, message: '请输入城市', trigger: 'blur' }],
+  district: [{ required: true, message: '请输入区/县', trigger: 'blur' }],
+  detail: [{ required: true, message: '请输入详细地址', trigger: 'blur' }],
+}
 
 async function load() {
   addresses.value = await addressApi.list()
@@ -49,6 +63,8 @@ function openEdit(address: Address) {
 }
 
 async function submit() {
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
   if (editingId.value) {
     await addressApi.update(editingId.value, form)
   } else {
@@ -99,23 +115,23 @@ onMounted(load)
     </el-table>
 
     <el-dialog v-model="dialogVisible" :title="editingId ? '编辑地址' : '新增地址'" width="480px">
-      <el-form :model="form" label-width="90px">
-        <el-form-item label="收货人">
+    <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
+        <el-form-item label="收货人" prop="receiverName">
           <el-input v-model="form.receiverName" />
         </el-form-item>
-        <el-form-item label="联系电话">
+        <el-form-item label="联系电话" prop="phone">
           <el-input v-model="form.phone" />
         </el-form-item>
-        <el-form-item label="省份">
+        <el-form-item label="省份" prop="province">
           <el-input v-model="form.province" />
         </el-form-item>
-        <el-form-item label="城市">
+        <el-form-item label="城市" prop="city">
           <el-input v-model="form.city" />
         </el-form-item>
-        <el-form-item label="区/县">
+        <el-form-item label="区/县" prop="district">
           <el-input v-model="form.district" />
         </el-form-item>
-        <el-form-item label="详细地址">
+        <el-form-item label="详细地址" prop="detail">
           <el-input v-model="form.detail" />
         </el-form-item>
         <el-form-item label="设为默认">

@@ -137,6 +137,7 @@ export interface SeckillActivity {
   productId: number
   seckillPrice: number
   stock: number
+  realStock?: number
   startTime: string
   endTime: string
   status: number

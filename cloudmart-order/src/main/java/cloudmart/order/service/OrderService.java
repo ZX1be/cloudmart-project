@@ -1,30 +1,34 @@
 package cloudmart.order.service;
 
+import cloudmart.order.client.ProductClient;
 import cloudmart.order.dto.CreateOrderDTO;
+import cloudmart.order.dto.SeckillOrderMessage;
 import cloudmart.order.entity.*;
-import cloudmart.order.mapper.CouponMapper;
-import cloudmart.order.mapper.OrderItemMapper;
-import cloudmart.order.mapper.OrderMapper;
-import cloudmart.order.mapper.UserCouponMapper;
+import cloudmart.order.mapper.*;
 import cloudmart.order.vo.OrderVO;
-import cloudmart.product.entity.Product;
-import cloudmart.product.mapper.ProductMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.baomidou.mybatisplus.extension.conditions.query.LambdaQueryChainWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import common.constant.MqConst;
+import common.dto.OrderStockMessage;
+import common.dto.ProductDTO;
 import common.exception.BizException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -33,9 +37,11 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
 
     private final CartItemService cartItemService;
     private final OrderItemMapper orderItemMapper;
-    private final ProductMapper productMapper;
+    private final ProductClient productClient;
     private final CouponMapper couponMapper;
     private final UserCouponMapper userCouponMapper;
+    private final SeckillActivityMapper seckillActivityMapper;
+    private final RabbitTemplate rabbitTemplate;
 
     @Transactional(rollbackFor = Exception.class)
     public Order createOrder(Long userId, CreateOrderDTO dto) {
@@ -46,18 +52,18 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
             throw new BizException("请选择要购买的商品");
         }
 
+        // 通过 Feign 只读取商品信息（含价格），用于计算金额与快照
         BigDecimal totalAmount = BigDecimal.ZERO;
+        Map<Long, ProductDTO> productMap = new HashMap<>();
         for (CartItem item : cartItems) {
-            Product product = productMapper.selectById(item.getProductId());
+            ProductDTO product = productClient.getById(item.getProductId()).getData();
             if (product == null || product.getStatus() == 0) {
                 throw new BizException("商品已下架");
             }
             if (product.getStock() < item.getQuantity()) {
                 throw new BizException("商品库存不足");
             }
-            product.setStock(product.getStock() - item.getQuantity());
-            product.setSales(product.getSales() + item.getQuantity());
-            productMapper.updateById(product);
+            productMap.put(product.getId(), product);
             totalAmount = totalAmount.add(product.getPrice()
                     .multiply(BigDecimal.valueOf(item.getQuantity())));
         }
@@ -82,7 +88,7 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         this.save(order);
 
         for (CartItem item : cartItems) {
-            Product product = productMapper.selectById(item.getProductId());
+            ProductDTO product = productMap.get(item.getProductId());
             OrderItem orderItem = new OrderItem();
             orderItem.setOrderId(order.getId());
             orderItem.setProductId(product.getId());
@@ -98,26 +104,53 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         cartItemService.remove(new LambdaQueryWrapper<CartItem>()
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getSelected, 1));
+
+        // 事务提交后，异步发送扣库存消息（最终一致性）
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    for (CartItem item : cartItems) {
+                        rabbitTemplate.convertAndSend(
+                                MqConst.ORDER_STOCK_EXCHANGE,
+                                MqConst.ORDER_STOCK_ROUTING,
+                                OrderStockMessage.builder()
+                                        .orderNo(order.getOrderNo())
+                                        .productId(item.getProductId())
+                                        .quantity(item.getQuantity())
+                                        .build());
+                    }
+                }
+            });
+        }
         return order;
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public Long createSeckillOrder(Long userId, Long addressId, SeckillActivity activity) {
-        Product product = productMapper.selectById(activity.getProductId());
-        if (product == null || product.getStatus() == 0 || activity.getStatus() == 0) {
-            throw new BizException("秒杀活动或商品不可用");
+    public Long createSeckillOrder(SeckillOrderMessage message) {
+        Order exist = this.getOne(new LambdaQueryWrapper<Order>()
+                .eq(Order::getOrderNo, message.getOrderNo()));
+        if (exist != null) {
+            return exist.getId();
         }
-        if (product.getStock() < 1) {
-            throw new BizException("商品库存不足");
+
+        SeckillActivity activity = seckillActivityMapper.selectById(message.getActivityId());
+        if (activity == null || activity.getStatus() == 0) {
+            throw new BizException("秒杀活动不存在");
         }
-        product.setStock(product.getStock() - 1);
-        product.setSales(product.getSales() + 1);
-        productMapper.updateById(product);
+
+        ProductDTO product = productClient.getById(activity.getProductId()).getData();
+        if (product == null || product.getStatus() == 0) {
+            throw new BizException("商品不存在或已下架");
+        }
+
+        // MySQL 兜底扣库存（Redis 已预扣，这里同步调 product 服务）
+        productClient.deductStock(product.getId(), 1);
 
         Order order = new Order();
-        order.setOrderNo(generateOrderNo());
-        order.setUserId(userId);
-        order.setAddressId(addressId);
+        order.setOrderNo(message.getOrderNo());
+        order.setUserId(message.getUserId());
+        order.setAddressId(message.getAddressId());
         order.setAddressSnapshot("{}");
         order.setTotalAmount(activity.getSeckillPrice());
         order.setDiscountAmount(BigDecimal.ZERO);
@@ -134,6 +167,7 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         item.setQuantity(1);
         item.setAmount(activity.getSeckillPrice());
         orderItemMapper.insert(item);
+
         return order.getId();
     }
 
@@ -185,6 +219,12 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
                         .orderByDesc(Order::getCreatedAt));
     }
 
+    public IPage<Order> pageAllOrders(Integer page, Integer size) {
+        return this.page(new Page<>(page, size),
+                new LambdaQueryWrapper<Order>()
+                        .orderByDesc(Order::getCreatedAt));
+    }
+
     public OrderVO detail(Long userId, Long orderId) {
         Order order = getOwnedOrder(userId, orderId);
         OrderVO vo = new OrderVO();
@@ -206,11 +246,7 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         List<OrderItem> items = orderItemMapper.selectList(
                 new LambdaQueryWrapper<OrderItem>().eq(OrderItem::getOrderId, orderId));
         for (OrderItem item : items) {
-            Product product = productMapper.selectById(item.getProductId());
-            if (product != null) {
-                product.setStock(product.getStock() + item.getQuantity());
-                productMapper.updateById(product);
-            }
+            productClient.restoreStock(item.getProductId(), item.getQuantity());
         }
     }
 

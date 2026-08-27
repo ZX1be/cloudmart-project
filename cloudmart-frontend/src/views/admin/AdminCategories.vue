@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { adminApi } from '@/api/admin'
 import { categoryApi } from '@/api/product'
+import AdminNav from '@/components/AdminNav.vue'
 import type { Category } from '@/types'
 
 const categories = ref<Category[]>([])
@@ -70,6 +71,7 @@ onMounted(load)
 
 <template>
   <div>
+    <AdminNav />
     <div class="toolbar">
       <h2>分类管理</h2>
       <el-button type="primary" @click="openCreate(0)">添加顶级分类</el-button>

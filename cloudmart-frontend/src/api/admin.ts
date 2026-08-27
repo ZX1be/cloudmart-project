@@ -17,5 +17,6 @@ export const adminApi = {
   coupons: () => request.get<any, Coupon[]>('/admin/coupons'),
   createCoupon: (data: object) => request.post<any, void>('/admin/coupons', data),
   seckillActivities: () => request.get<any, SeckillActivity[]>('/admin/seckill'),
+  createSeckill: (data: object) => request.post<any, void>('/admin/seckill', data),
   warmUpSeckill: (id: number) => request.post<any, void>(`/admin/seckill/${id}/warmup`),
 }

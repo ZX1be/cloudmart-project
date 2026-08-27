@@ -29,6 +29,11 @@ const router = createRouter({
       meta: { title: '秒杀活动' },
     },
     {
+      path: '/coupons',
+      component: () => import('@/views/Coupons.vue'),
+      meta: { title: '领券中心', requiresAuth: true },
+    },
+    {
       path: '/cart',
       component: () => import('@/views/Cart.vue'),
       meta: { title: '购物车', requiresAuth: true },

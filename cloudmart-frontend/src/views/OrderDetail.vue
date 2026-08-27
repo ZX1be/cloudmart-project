@@ -7,6 +7,18 @@ import type { OrderVO } from '@/types'
 const route = useRoute()
 const order = ref<OrderVO | null>(null)
 
+const statusText = (s: string) =>
+  (
+    {
+      PENDING: '待支付',
+      PAID: '待发货',
+      SHIPPED: '已发货',
+      RECEIVED: '已收货',
+      COMPLETED: '已完成',
+      CANCELLED: '已取消',
+    } as Record<string, string>
+  )[s] || s
+
 async function load() {
   order.value = await orderApi.detail(Number(route.params.id))
 }
@@ -36,8 +48,8 @@ onMounted(load)
       <el-descriptions :column="2" border>
         <el-descriptions-item label="订单号">{{ order.orderNo }}</el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="order.status === 'PAID' ? 'success' : 'primary'">
-            {{ order.status }}
+          <el-tag :type="order.status === 'PENDING' ? 'warning' : order.status === 'PAID' ? 'success' : 'info'">
+            {{ statusText(order.status) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="商品总价">¥{{ order.totalAmount }}</el-descriptions-item>

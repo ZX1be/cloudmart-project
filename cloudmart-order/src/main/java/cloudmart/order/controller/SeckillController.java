@@ -21,9 +21,10 @@ public class SeckillController {
     }
 
     @PostMapping("/{activityId}/buy")
-    public Result<Long> buy(@RequestHeader("X-User-Id") Long userId,
-                            @PathVariable Long activityId,
-                            @RequestParam Long addressId) {
-        return Result.success(seckillService.seckill(userId, activityId, addressId));
+    public Result<String> buy(@RequestHeader("X-User-Id") Long userId,
+                              @PathVariable Long activityId,
+                              @RequestParam Long addressId) {
+        seckillService.seckill(userId, activityId, addressId);
+        return Result.success("排队成功，请稍后查询订单");
     }
 }

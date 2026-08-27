@@ -10,12 +10,14 @@ import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import common.exception.BizException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.Serializable;
 import java.time.Duration;
-
+@Slf4j
 @RequiredArgsConstructor
 @Service
 public class ProductService extends ServiceImpl<ProductMapper, Product> {
@@ -23,30 +25,7 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
     private final StringRedisTemplate redisTemplate;
     private static final String PRODUCT_CACHE_KEY = "product:detail";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    @Override
-    public Product getById(Serializable id){
-        //1.查Redis缓存
-        String cacheKey = PRODUCT_CACHE_KEY+ id;
-        String cached = redisTemplate.opsForValue().get(cacheKey);
-        if(cached!=null){
-            try {
-                return objectMapper.readValue(cached,Product.class);
-            }catch (Exception e){
-                // 反序列化失败则查库
-            }
-        }
-        //2.查库
-        Product product = super.getById(id);
-        if(product!=null){
-            //3.写缓存
-            try {
-                String json=objectMapper.writeValueAsString(product);
-                redisTemplate.opsForValue().set(cacheKey,json, Duration.ofMinutes(30+(long)(Math.random()*10)));
 
-            }catch (Exception ignored){}
-        }
-        return product;
-    }
 
     @Override
     public boolean updateById(Product entity){
@@ -96,13 +75,31 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
      * 用户端商品详情，只返回上架商品
      */
     public Product detail(Long id) {
-        Product product = this.getById(id);
+        String cacheKey = "product:detail:" + id;
+        String cached = redisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            try {
+                return objectMapper.readValue(cached, Product.class);
+            } catch (Exception e) {
+                log.warn("商品缓存反序列化失败: {}",id,e);
+            }
+        }
+        Product product = getById(id);
         if (product == null || product.getStatus() == 0) {
             throw new BizException("商品不存在或已下架");
         }
+
+        try {
+            long ttl = 30 * 60 + (long) (Math.random() * 600);
+            redisTemplate.opsForValue().set(
+                    cacheKey,
+                    objectMapper.writeValueAsString(product),
+                    Duration.ofSeconds(ttl));
+        } catch (Exception e) {
+            log.warn("商品缓存写入失败: {}", id, e);
+        }
         return product;
     }
-
     /**
      * 管理端新增商品
      */
@@ -121,7 +118,8 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
      */
     public void updateProduct(Product product) {
         product.setSales(null);
-        this.updateById(product);
+        updateById(product);
+        redisTemplate.delete("product:detail:" + product.getId());
     }
 
     /**
@@ -130,4 +128,42 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
     public void deleteProduct(Long id) {
         this.removeById(id);
     }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void deductStock(Long id,Integer quantity){
+        Product p = this.getById(id);
+        if(p==null || p.getStatus()==0){
+            throw new BizException("商品不存在或已下架");
+        }
+        if(p.getStock()<quantity){
+            throw new BizException("库存不足");
+        }
+        p.setStock(p.getStock() - quantity);
+        p.setSales(p.getSales() + quantity);
+        this.updateById(p);
+        redisTemplate.delete("product:detail:" + id); // 清缓存
+    }
+
+    private static final String DEDUCT_FLAG_PREFIX = "stock:deducted:";
+
+    /** 幂等扣库存：以 orderNo 去重，重复消费直接成功返回 */
+    public void deductStockIdempotent(String orderNo, Long productId, Integer quantity) {
+        String flagKey = DEDUCT_FLAG_PREFIX + orderNo + ":" + productId;
+        Boolean first = redisTemplate.opsForValue().setIfAbsent(flagKey, "1", java.time.Duration.ofDays(1));
+        if (Boolean.FALSE.equals(first)) {
+            return;
+        }
+        deductStock(productId, quantity);
+    }
+
+    /** 恢复库存（取消订单时） */
+    public void restoreStock(Long id, Integer quantity) {
+        Product p = this.getById(id);
+        if (p != null) {
+            p.setStock(p.getStock() + quantity);
+            this.updateById(p);
+            redisTemplate.delete("product:detail:" + id);
+        }
+    }
+
 }

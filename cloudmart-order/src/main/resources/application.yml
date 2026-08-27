@@ -1,5 +1,8 @@
 server:
   port: 8083
+  tomcat:
+    threads:
+      max: 500
 
 
 springdoc:
@@ -12,6 +15,21 @@ knife4j:
     language: zh_cn
 
 spring:
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2
   application:
     name: cloudmart-order
   datasource:
@@ -19,6 +37,12 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 30
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
   data:
     redis:
       host: localhost

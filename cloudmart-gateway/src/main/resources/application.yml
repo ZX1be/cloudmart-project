@@ -32,7 +32,7 @@ spring:
         - id: product-service
           uri: lb://cloudmart-product
           predicates:
-            - Path=/api/products/**,/api/categories/**,/api/favorites/**,/api/admin/**
+            - Path=/api/products/**,/api/categories/**,/api/favorites/**,/api/admin/products/**,/api/admin/categories/**
 
 
 
@@ -40,8 +40,14 @@ spring:
         - id: order-service
           uri: lb://cloudmart-order
           predicates:
-            - Path=/api/cart/**,/api/orders/**,/api/coupons/**,/api/seckill/**
-
+            - Path=/api/cart/**,/api/orders/**,/api/coupons/**,/api/seckill/**,/api/admin/orders/**,/api/admin/coupons/**,/api/admin/seckill/**
+          filters:
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 20
+                redis-rate-limiter.burstCapacity: 40
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
 
         #全局过滤器，去掉重复的跨域头
       default-filters:
