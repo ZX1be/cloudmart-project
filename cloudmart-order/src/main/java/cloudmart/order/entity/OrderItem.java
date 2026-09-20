@@ -18,5 +18,6 @@ public class OrderItem {
     private String productImage;    // 商品图片快照
     private BigDecimal price;       // 下单时单价
     private Integer quantity;
-    private BigDecimal amount;      // 小计
+    private BigDecimal amount;  // 小计
+    private Integer stockStatus; //0待处理 1已扣减 2扣减失败
 }

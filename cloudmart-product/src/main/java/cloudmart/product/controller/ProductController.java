@@ -29,8 +29,9 @@ public class ProductController {
 
     @PostMapping("/{id}/deduct")
     public Result<Void> deductStock(@PathVariable Long id,
-            @RequestParam Integer quantity){
-        productService.deductStock(id, quantity);
+                                    @RequestParam String orderNo,
+                                    @RequestParam Integer quantity) {
+        productService.deductStockIdempotent(orderNo, id, quantity);
         return Result.success();
     }
 

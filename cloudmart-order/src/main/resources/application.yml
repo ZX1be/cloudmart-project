@@ -4,6 +4,8 @@ server:
     threads:
       max: 500
 
+outbox:
+  message-types: STOCK_DEDUCT,SECKILL_ORDER
 
 springdoc:
   swagger-ui:
@@ -30,6 +32,8 @@ spring:
           max-attempts: 3
           initial-interval: 1000ms
           multiplier: 2
+    template:
+        mandatory: true
   application:
     name: cloudmart-order
   datasource:

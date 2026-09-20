@@ -3,6 +3,16 @@ import type { AxiosResponse, InternalAxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
 
+export class ApiError extends Error {
+  readonly code: number
+
+  constructor(code: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = code
+  }
+}
+
 const request = axios.create({
   baseURL: '/api',
   timeout: 10000,
@@ -27,7 +37,7 @@ request.interceptors.response.use(
         return res.data
       }
       ElMessage.error(res.message || '请求失败')
-      return Promise.reject(new Error(res.message || '请求失败'))
+      return Promise.reject(new ApiError(res.code, res.message || '请求失败'))
     }
     return res
   },

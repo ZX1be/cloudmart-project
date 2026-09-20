@@ -17,8 +17,6 @@ import org.springframework.stereotype.Component;
 public class SeckillOrderConsumer {
     private final OrderService orderService;
     private final StringRedisTemplate redisTemplate;
-
-
     @RabbitListener(queues = RabbitConfig.SECKILL_QUEUE)
     public void onMessage(SeckillOrderMessage message,
                           Channel channel,
@@ -36,7 +34,7 @@ public class SeckillOrderConsumer {
     }
 
     private void rollbackRedisStock(SeckillOrderMessage message){
-        String stockKey = "seckill:stock:" + message.getActivityId();
+        String stockKey = "seckill:stock:"+message.getActivityId();
         String flagKey = "seckill:order:flag:" + message.getActivityId() + ":" + message.getUserId();
         redisTemplate.opsForValue().increment(stockKey, 1);
         redisTemplate.delete(flagKey);

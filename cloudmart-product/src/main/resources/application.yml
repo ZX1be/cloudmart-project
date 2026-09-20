@@ -4,6 +4,9 @@ server:
     threads:
       max: 500
 
+outbox:
+  message-types: STOCK_RESULT
+
 springdoc:
   swagger-ui:
     enabled: true
@@ -36,6 +39,10 @@ spring:
     port: 5672
     username: guest
     password: guest
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
     listener:
       simple:
         acknowledge-mode: manual

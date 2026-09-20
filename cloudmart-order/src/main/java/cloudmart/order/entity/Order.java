@@ -29,4 +29,5 @@ public class Order {
     private LocalDateTime updatedAt;
     @TableLogic
     private Integer deleted;
+    private Integer stockStatus; //0待处理 1已扣减 2扣减失败
 }

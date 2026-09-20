@@ -7,13 +7,18 @@ import cloudmart.order.entity.*;
 import cloudmart.order.mapper.*;
 import cloudmart.order.vo.OrderVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import common.constant.MqConst;
 import common.dto.OrderStockMessage;
 import common.dto.ProductDTO;
 import common.exception.BizException;
+import common.mapper.OutboxMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
@@ -24,11 +29,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -42,12 +49,50 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
     private final UserCouponMapper userCouponMapper;
     private final SeckillActivityMapper seckillActivityMapper;
     private final RabbitTemplate rabbitTemplate;
+    private final OrderIdempotentRecordMapper orderIdempotentRecordMapper;
+    private final OutboxMapper outboxMapper;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional(rollbackFor = Exception.class)
-    public Order createOrder(Long userId, CreateOrderDTO dto) {
+    public Order createOrder(Long userId,String idempotencyKey,CreateOrderDTO dto) {
+        validateIdempotencyKey(idempotencyKey);
+        String requestHash = buildRequestHash(dto);
+        OrderIdempotentRecord record = new OrderIdempotentRecord();
+        record.setUserId(userId);
+        record.setIdempotentKey(idempotencyKey);
+        record.setRequestHash(requestHash);
+
+
+        int inserted = orderIdempotentRecordMapper.insertIgnore(record);
+        if (inserted == 0) {
+            OrderIdempotentRecord existing =
+                    orderIdempotentRecordMapper.selectForUpdate(
+                            userId, idempotencyKey);
+
+            if (existing == null || existing.getOrderId() == null) {
+                throw new BizException(500, "订单幂等记录状态异常");
+            }
+
+            if (!requestHash.equals(existing.getRequestHash())) {
+                throw new BizException(
+                        409,
+                        "Idempotency-Key 已用于不同的订单请求"
+                );
+            }
+            Order existingOrder = this.getById(existing.getOrderId());
+
+            if (existingOrder == null) {
+                throw new BizException(500, "幂等记录对应订单不存在");
+            }
+
+            return existingOrder;
+        }
+
+
         List<CartItem> cartItems = cartItemService.list(new LambdaQueryWrapper<CartItem>()
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getSelected, 1));
+        validateCartFingerprint(dto.getCartFingerprint(), cartItems);
         if (cartItems.isEmpty()) {
             throw new BizException("请选择要购买的商品");
         }
@@ -86,7 +131,12 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         order.setStatus("PENDING");
         order.setCouponId(couponId);
         this.save(order);
+        int bound = orderIdempotentRecordMapper.bindOrderId(
+                record.getId(), order.getId());
 
+        if (bound != 1) {
+            throw new BizException(500, "订单幂等记录回填失败");
+        }
         for (CartItem item : cartItems) {
             ProductDTO product = productMap.get(item.getProductId());
             OrderItem orderItem = new OrderItem();
@@ -105,23 +155,13 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
                 .eq(CartItem::getUserId, userId)
                 .eq(CartItem::getSelected, 1));
 
-        // 事务提交后，异步发送扣库存消息（最终一致性）
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    for (CartItem item : cartItems) {
-                        rabbitTemplate.convertAndSend(
-                                MqConst.ORDER_STOCK_EXCHANGE,
-                                MqConst.ORDER_STOCK_ROUTING,
-                                OrderStockMessage.builder()
-                                        .orderNo(order.getOrderNo())
-                                        .productId(item.getProductId())
-                                        .quantity(item.getQuantity())
-                                        .build());
-                    }
-                }
-            });
+        for (CartItem item : cartItems) {
+            OrderStockMessage event= OrderStockMessage.builder()
+                    .orderNo(order.getOrderNo())
+                    .productId(item.getProductId())
+                    .quantity(item.getQuantity())
+                    .build();
+            saveOrderOutbox(event, "STOCK_DEDUCT");
         }
         return order;
     }
@@ -144,9 +184,6 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
             throw new BizException("商品不存在或已下架");
         }
 
-        // MySQL 兜底扣库存（Redis 已预扣，这里同步调 product 服务）
-        productClient.deductStock(product.getId(), 1);
-
         Order order = new Order();
         order.setOrderNo(message.getOrderNo());
         order.setUserId(message.getUserId());
@@ -156,6 +193,7 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         order.setDiscountAmount(BigDecimal.ZERO);
         order.setPayAmount(activity.getSeckillPrice());
         order.setStatus("PENDING");
+        order.setStockStatus(0);
         this.save(order);
 
         OrderItem item = new OrderItem();
@@ -166,7 +204,15 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         item.setPrice(activity.getSeckillPrice());
         item.setQuantity(1);
         item.setAmount(activity.getSeckillPrice());
+        item.setStockStatus(0);
         orderItemMapper.insert(item);
+
+        OrderStockMessage event = OrderStockMessage.builder()
+                .orderNo(order.getOrderNo())
+                .productId(product.getId())
+                .quantity(1)
+                .build();
+        saveOrderOutbox(event, "STOCK_DEDUCT");
 
         return order.getId();
     }
@@ -295,4 +341,100 @@ public class OrderService extends ServiceImpl<OrderMapper, Order> {
         String random = String.format("%06d", (int) (Math.random() * 1000000));
         return timestamp + random;
     }
+    private void validateIdempotencyKey(String idempotencyKey) {
+        if (idempotencyKey == null
+                || idempotencyKey.isBlank()
+                || idempotencyKey.length() > 64) {
+            throw new BizException(400, "Idempotency-Key 无效");
+        }
+    }
+    private String buildRequestHash(CreateOrderDTO dto) {
+        String canonical = String.join(
+                "\n",
+                String.valueOf(dto.getAddressId()),
+                Objects.toString(dto.getUserCouponId(), "null"),
+                Objects.toString(dto.getAddressSnapshot(), ""),
+                dto.getCartFingerprint()
+        );
+
+        return sha256(canonical);
+    }
+
+    private String sha256(String value) {
+        try {
+            byte[] bytes = MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(bytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+    private void validateCartFingerprint(String clientFingerprint,
+                                         List<CartItem> cartItems) {
+        if (cartItems.isEmpty()) {
+            throw new BizException("请选择要购买的商品");
+        }
+
+        String actual = cartItems.stream()
+                .sorted(Comparator.comparing(CartItem::getProductId))
+                .map(item -> item.getProductId() + ":" + item.getQuantity())
+                .collect(Collectors.joining("\n"));
+
+        String actualFingerprint = sha256(actual);
+
+        if (!actualFingerprint.equals(clientFingerprint)) {
+            throw new BizException(
+                    409,
+                    "购物车内容已经变化，请重新确认订单"
+            );
+        }
+    }
+    @Transactional(rollbackFor = Exception.class)
+    public void markStockDeducted(String orderNo, Long productId) {
+        Order order= baseMapper.selectByOrderNoForUpdate(orderNo);
+        if (order == null) {
+            throw new BizException("订单不存在: " + orderNo);
+        }
+
+        orderItemMapper.update(
+                null,
+                Wrappers.<OrderItem>lambdaUpdate()
+                        .eq(OrderItem::getOrderId, order.getId())
+                        .eq(OrderItem::getProductId, productId)
+                        .set(OrderItem::getStockStatus, 1)
+        );
+
+        Long unfinishedCount = orderItemMapper.selectCount(
+                Wrappers.<OrderItem>lambdaQuery()
+                        .eq(OrderItem::getOrderId, order.getId())
+                        .ne(OrderItem::getStockStatus, 1)
+        );
+
+        if (unfinishedCount == 0) {
+            this.lambdaUpdate()
+                    .eq(Order::getOrderNo, orderNo)
+                    .set(Order::getStockStatus, 1)
+                    .update();
+        }
+    }
+
+    private void saveOrderOutbox(OrderStockMessage event, String messageType){
+        String messageKey="STOCK_DEDUCT:"+event.getOrderNo()+":"+event.getProductId();
+        int inserted= outboxMapper.insertLocal(messageKey,messageType,MqConst.ORDER_STOCK_EXCHANGE,MqConst.ORDER_STOCK_ROUTING,writeJson(event));
+        if (inserted == 0) {
+            log.info("订单Outbox已存在: {}", messageKey);
+        }
+    }
+
+    private String writeJson(Object event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JsonProcessingException e) {
+            throw new BizException(500, "库存结果消息序列化失败");
+        }
+    }
+
+
+
+
 }

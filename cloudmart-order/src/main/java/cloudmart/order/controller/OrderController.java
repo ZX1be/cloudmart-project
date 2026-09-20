@@ -18,8 +18,9 @@ public class OrderController {
     private final OrderService orderService;
     @PostMapping
     public Result<Order> create(@RequestHeader("X-User-Id") Long userId,
+                                @RequestHeader("Idempotency-Key") String idempotencyKey,
                                 @Valid @RequestBody CreateOrderDTO dto) {
-        return Result.success(orderService.createOrder(userId, dto));
+        return Result.success(orderService.createOrder(userId, idempotencyKey,dto));
     }
     @GetMapping
     public Result<IPage<Order>> list(@RequestHeader("X-User-Id") Long userId,

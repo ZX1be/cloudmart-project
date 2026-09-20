@@ -20,7 +20,10 @@ public class RabbitConfig {
 
     @Bean
     public Queue seckillQueue() {
-        return new Queue(SECKILL_QUEUE, true);
+        return QueueBuilder.durable(SECKILL_QUEUE)
+                .deadLetterExchange(MqConst.SECKILL_DLX)
+                .deadLetterRoutingKey(MqConst.SECKILL_DLQ_ROUTING)
+                .build();
     }
 
     @Bean
@@ -37,8 +40,28 @@ public class RabbitConfig {
     }
 
     @Bean
+    public Queue seckillDlq() {
+        return QueueBuilder.durable(MqConst.SECKILL_DLQ).build();
+    }
+
+    @Bean
+    public DirectExchange seckillDlx() {
+        return new DirectExchange(MqConst.SECKILL_DLX);
+    }
+
+    @Bean
+    public Binding seckillDlqBinding() {
+        return BindingBuilder.bind(seckillDlq())
+                .to(seckillDlx())
+                .with(MqConst.SECKILL_DLQ_ROUTING);
+    }
+
+    @Bean
     public Queue orderStockQueue() {
-        return new Queue(ORDER_STOCK_QUEUE, true);
+        return QueueBuilder.durable(ORDER_STOCK_QUEUE)
+                .deadLetterExchange(MqConst.ORDER_STOCK_DLX)
+                .deadLetterRoutingKey(MqConst.ORDER_STOCK_DLQ_ROUTING)
+                .build();
     }
 
     @Bean
@@ -51,6 +74,60 @@ public class RabbitConfig {
         return BindingBuilder.bind(orderStockQueue())
                 .to(orderStockExchange())
                 .with(ORDER_STOCK_ROUTING);
+    }
+
+    @Bean
+    public Queue orderStockDlq() {
+        return QueueBuilder.durable(MqConst.ORDER_STOCK_DLQ).build();
+    }
+
+    @Bean
+    public DirectExchange orderStockDlx() {
+        return new DirectExchange(MqConst.ORDER_STOCK_DLX);
+    }
+
+    @Bean
+    public Binding orderStockDlqBinding() {
+        return BindingBuilder.bind(orderStockDlq())
+                .to(orderStockDlx())
+                .with(MqConst.ORDER_STOCK_DLQ_ROUTING);
+    }
+
+    @Bean
+    public Queue stockResultQueue() {
+        return QueueBuilder.durable(MqConst.STOCK_RESULT_QUEUE)
+                .deadLetterExchange(MqConst.STOCK_RESULT_DLX)
+                .deadLetterRoutingKey(MqConst.STOCK_RESULT_DLQ_ROUTING)
+                .build();
+    }
+    @Bean
+    public DirectExchange stockResultExchange() {
+        return new DirectExchange(MqConst.STOCK_RESULT_EXCHANGE);
+    }
+
+    @Bean
+    public Binding stockResultBinding() {
+        return BindingBuilder
+                .bind(stockResultQueue())
+                .to(stockResultExchange())
+                .with(MqConst.STOCK_RESULT_ROUTING);
+    }
+
+    @Bean
+    public Queue stockResultDlq() {
+        return QueueBuilder.durable(MqConst.STOCK_RESULT_DLQ).build();
+    }
+
+    @Bean
+    public DirectExchange stockResultDlx() {
+        return new DirectExchange(MqConst.STOCK_RESULT_DLX);
+    }
+
+    @Bean
+    public Binding stockResultDlqBinding() {
+        return BindingBuilder.bind(stockResultDlq())
+                .to(stockResultDlx())
+                .with(MqConst.STOCK_RESULT_DLQ_ROUTING);
     }
 
     @Bean

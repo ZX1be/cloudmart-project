@@ -28,7 +28,7 @@ public class SeckillService extends ServiceImpl<SeckillActivityMapper,SeckillAct
     private final OrderService orderService;
     private final DefaultRedisScript<Long> seckillScript;
     private final RabbitTemplate rabbitTemplate;
-    private static final String STOCK_KEY = "seckill:stock";
+    private static final String STOCK_KEY = "seckill:stock:";
     private static final String ORDER_FLAG_KEY = "seckill:order:flag:";
 
     public List<SeckillActivity> listAvailable() {
@@ -81,7 +81,7 @@ public class SeckillService extends ServiceImpl<SeckillActivityMapper,SeckillAct
                 .userId(userId)
                 .activityId(activityId)
                 .addressId(addressId)
-                .orderNo(generateSeckillOrderNo(userId, activityId))
+                .orderNo(generateSeckillOrderNo(userId,activityId))
                 .build();
 
         try {

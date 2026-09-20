@@ -3,29 +3,39 @@ package cloudmart.product.service;
 import cloudmart.product.dto.ProductQueryDTO;
 import cloudmart.product.entity.Product;
 import cloudmart.product.mapper.ProductMapper;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.annotation.JsonAppend;
+import common.constant.MqConst;
 import common.exception.BizException;
+import common.mapper.OutboxMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.ibatis.session.ResultHandler;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.Serializable;
 import java.time.Duration;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import common.dto.StockDeductResultMessage;
+import com.fasterxml.jackson.core.JsonProcessingException;
 @Slf4j
 @RequiredArgsConstructor
 @Service
 public class ProductService extends ServiceImpl<ProductMapper, Product> {
-
     private final StringRedisTemplate redisTemplate;
+    private final OutboxMapper outboxMapper;
     private static final String PRODUCT_CACHE_KEY = "product:detail";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-
 
     @Override
     public boolean updateById(Product entity){
@@ -125,36 +135,50 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
     /**
      * 管理端删除商品，MyBatis-Plus 逻辑删除
      */
-    public void deleteProduct(Long id) {
-        this.removeById(id);
-    }
-
-    @Transactional(rollbackFor = Exception.class)
-    public void deductStock(Long id,Integer quantity){
-        Product p = this.getById(id);
-        if(p==null || p.getStatus()==0){
-            throw new BizException("商品不存在或已下架");
-        }
-        if(p.getStock()<quantity){
-            throw new BizException("库存不足");
-        }
-        p.setStock(p.getStock() - quantity);
-        p.setSales(p.getSales() + quantity);
-        this.updateById(p);
-        redisTemplate.delete("product:detail:" + id); // 清缓存
-    }
+//    public void deleteProduct(Long id) {
+//        this.removeById(id);
+//    }
+//    //普通情况下扣
+//    @Transactional(rollbackFor = Exception.class)
+//    public void deductStock(Long id,Integer quantity){
+//        Product p = baseMapper.selectById(id);
+//        if(p==null){
+//            throw new BizException("商品不存在");
+//        }
+//        Long productId = p. getId();
+//        int updated = baseMapper.deductStockAtomically(productId, quantity);
+//        if(updated==0){
+//            throw new BizException("库存不足");
+//        }
+//        redisTemplate.delete("product:detail:" + id); // 清缓存
+//    }
 
     private static final String DEDUCT_FLAG_PREFIX = "stock:deducted:";
-
-    /** 幂等扣库存：以 orderNo 去重，重复消费直接成功返回 */
+    /** 幂等扣库存：用MySQL表约束 */
+    @Transactional(rollbackFor = Exception.class)
     public void deductStockIdempotent(String orderNo, Long productId, Integer quantity) {
-        String flagKey = DEDUCT_FLAG_PREFIX + orderNo + ":" + productId;
-        Boolean first = redisTemplate.opsForValue().setIfAbsent(flagKey, "1", java.time.Duration.ofDays(1));
-        if (Boolean.FALSE.equals(first)) {
+
+        int inserted=baseMapper.insertIgnoreDeductRecord(orderNo,productId,quantity);
+        if(inserted==0){
+            // 唯一键冲突，说明该订单商品已经成功处理，重复消息直接结束
             return;
         }
-        deductStock(productId, quantity);
+            int updated = baseMapper.deductStockAtomically(productId, quantity);
+            if(updated==0){
+                // 抛出异常后事务回滚，刚插入的幂等记录也会一起回滚
+                throw new BizException("商品不存在、已下架或库存不足");
+            }
+
+        StockDeductResultMessage event = StockDeductResultMessage.builder()
+                .orderNo(orderNo)
+                .productId(productId)
+                .quantity(quantity)
+                .build();
+
+        saveStockResultOutbox(event, "STOCK_RESULT");
+        redisTemplate.delete("product:detail:" + productId);
     }
+
 
     /** 恢复库存（取消订单时） */
     public void restoreStock(Long id, Integer quantity) {
@@ -163,6 +187,25 @@ public class ProductService extends ServiceImpl<ProductMapper, Product> {
             p.setStock(p.getStock() + quantity);
             this.updateById(p);
             redisTemplate.delete("product:detail:" + id);
+        }
+    }
+    private void saveStockResultOutbox(StockDeductResultMessage event, String messageType) {
+        String messageKey = "STOCK_RESULT:"
+                + event.getOrderNo()
+                + ":"
+                + event.getProductId();
+
+        int inserted = outboxMapper.insertLocal(messageKey,messageType,MqConst.STOCK_RESULT_EXCHANGE,MqConst.STOCK_RESULT_ROUTING,writeJson(event));
+        if (inserted == 0) {
+            log.info("库存结果Outbox已存在: {}", messageKey);
+        }
+    }
+
+    private String writeJson(Object event) {
+        try {
+            return objectMapper.writeValueAsString(event);
+        } catch (JsonProcessingException e) {
+            throw new BizException(500, "库存结果消息序列化失败");
         }
     }
 
